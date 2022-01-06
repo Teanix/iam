@@ -44,6 +44,7 @@ func addConfigFlag(basename string, fs *pflag.FlagSet) {
 
 			if names := strings.Split(basename, "-"); len(names) > 1 {
 				viper.AddConfigPath(filepath.Join(homedir.HomeDir(), "."+names[0]))
+				viper.AddConfigPath(filepath.Join("/etc", names[0]))
 			}
 
 			viper.SetConfigName(basename)
@@ -56,7 +57,6 @@ func addConfigFlag(basename string, fs *pflag.FlagSet) {
 	})
 }
 
-//nolint: deadcode,unused
 func printConfig() {
 	keys := viper.AllKeys()
 	if len(keys) > 0 {

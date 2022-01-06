@@ -15,6 +15,7 @@ source ${IAM_ROOT}/scripts/install/mongodb.sh
 source ${IAM_ROOT}/scripts/install/iam-apiserver.sh
 source ${IAM_ROOT}/scripts/install/iam-authz-server.sh
 source ${IAM_ROOT}/scripts/install/iam-pump.sh
+source ${IAM_ROOT}/scripts/install/iam-watcher.sh
 source ${IAM_ROOT}/scripts/install/iamctl.sh
 source ${IAM_ROOT}/scripts/install/man.sh
 source ${IAM_ROOT}/scripts/install/test.sh
@@ -38,7 +39,11 @@ alias mv='mv -i'
 
 # Source global definitions
 if [ -f /etc/bashrc ]; then
-        . /etc/bashrc
+    . /etc/bashrc
+fi
+
+if [ ! -d $HOME/workspace ]; then
+    mkdir -p $HOME/workspace
 fi
 
 # User specific environment
@@ -47,6 +52,11 @@ export LANG="en_US.UTF-8" # 设置系统语言为 en_US.UTF-8，避免终端出�
 export PS1='[\u@dev \W]\$ ' # 默认的 PS1 设置会展示全部的路径，为了防止过长，这里只展示："用户名@dev 最后的目录名"
 export WORKSPACE="$HOME/workspace" # 设置工作目录
 export PATH=$HOME/bin:$PATH # 将 $HOME/bin 目录加入到 PATH 变量中
+
+# Default entry folder
+cd $WORKSPACE # 登录系统，默认进入 workspace 目录
+
+# User specific aliases and functions
 EOF
 
   # 创建工作目录
@@ -104,23 +114,24 @@ function iam::install::go_command()
   # 检查 go 是否安装
   #command -v go &>/dev/null && return 0
 
-  # 1. 下载 go1.16.2版本的Go安装包
-  wget -P /tmp/ https://marmotedu-1254073058.cos.ap-beijing.myqcloud.com/tools/go1.16.2.linux-amd64.tar.gz
+  # 1. 下载 go1.17.2 版本的Go安装包
+  wget -P /tmp/ https://golang.google.cn/dl/go1.17.2.linux-amd64.tar.gz
+
   # 2. 安装Go
   mkdir -p $HOME/go
-  tar -xvzf /tmp/go1.16.2.linux-amd64.tar.gz -C $HOME/go
-  mv $HOME/go/go $HOME/go/go1.16.2
+  tar -xvzf /tmp/go1.17.2.linux-amd64.tar.gz -C $HOME/go
+  mv $HOME/go/go $HOME/go/go1.17.2
 
   # 3. 配置Go环境变量
   cat << 'EOF' >> $HOME/.bashrc
 # Go envs
-export GOVERSION=go1.16.2 # Go 版本设置
+export GOVERSION=go1.17.2 # Go 版本设置
 export GO_INSTALL_DIR=$HOME/go # Go 安装目录
 export GOROOT=$GO_INSTALL_DIR/$GOVERSION # GOROOT 设置
 export GOPATH=$WORKSPACE/golang # GOPATH 设置
 export PATH=$GOROOT/bin:$GOPATH/bin:$PATH # 将 Go 语言自带的和通过 go install 安装的二进制文件加入到 PATH 路径中
 export GO111MODULE="on" # 开启 Go moudles 特性
-export GOPROXY=https://goproxy.cn,direct # 安装 Go 模块时，代理服务器设置
+export GOPROXY=https://mirrors.aliyun.com/goproxy,https://goproxy.cn,direct # 安装 Go 模块时，代理服务器设置
 export GOPRIVATE=github.com # 指定不走代理的 Go 包域名
 export GOSUMDB=off # 关闭校验 Go 依赖包的哈希值
 EOF
@@ -147,7 +158,7 @@ function iam::install::protobuf()
 
   # 2. 安装 protoc-gen-go
   echo $GO111MODULE
-  go get -u github.com/golang/protobuf/protoc-gen-go
+  go install github.com/golang/protobuf/protoc-gen-go@latest
   iam::log::info "install protoc-gen-go plugin successfully"
 }
 
@@ -191,14 +202,19 @@ EOF
   iam::log::info "install vim ide successfully"
 }
 
+# 如果是通过脚本安装，需要先尝试获取安装脚本指定的Tag，Tag记录在version文件中
+function iam::install::obtain_branch_flag(){
+  if [ -f "${IAM_ROOT}"/version ];then
+    echo "-b `cat "${IAM_ROOT}"/version`"
+  fi
+}
+
 function iam::install::prepare_iam()
 {
-  # 1. 下载iam项目代码
-  if [[ ! -d $WORKSPACE/golang/src/github.com/marmotedu/iam ]];then
-    mkdir -p $WORKSPACE/golang/src/github.com/marmotedu
-    cd $WORKSPACE/golang/src/github.com/marmotedu
-    git clone --depth=1 https://github.com/marmotedu/iam
-  fi
+  # 1. 下载iam项目代码，先强制删除iam目录，确保iam源码都是最新的指定版本
+  mkdir -p $WORKSPACE/golang/src/github.com/marmotedu && cd $WORKSPACE/golang/src/github.com/marmotedu && rm -rf iam
+  git clone $(iam::install::obtain_branch_flag) --depth=1 https://github.com/marmotedu/iam
+
   # NOTICE: 因为切换编译路径，所以这里要重新赋值 IAM_ROOT 和 LOCAL_OUTPUT_ROOT
   IAM_ROOT=$WORKSPACE/golang/src/github.com/marmotedu/iam
   LOCAL_OUTPUT_ROOT="${IAM_ROOT}/${OUT_DIR:-_output}"
@@ -217,20 +233,20 @@ EOF
 
   # 3. 初始化MariaDB数据库，创建iam数据库
 
-  # 3.1 登陆数据库并创建iam用户
+  # 3.1 登录数据库并创建iam用户
   mysql -h127.0.0.1 -P3306 -u"${MARIADB_ADMIN_USERNAME}" -p"${MARIADB_ADMIN_PASSWORD}" << EOF
 grant all on iam.* TO ${MARIADB_USERNAME}@127.0.0.1 identified by "${MARIADB_PASSWORD}";
 flush privileges;
 EOF
 
-  # 3.2 用iam用户登陆mysql，执行iam.sql文件，创建iam数据库
+  # 3.2 用iam用户登录mysql，执行iam.sql文件，创建iam数据库
   mysql -h127.0.0.1 -P3306 -u${MARIADB_USERNAME} -p"${MARIADB_PASSWORD}" << EOF
 source configs/iam.sql;
 show databases;
 EOF
 
   # 4. 创建必要的目录
-  echo ${LINUX_PASSWORD} | sudo -S mkdir -p ${IAM_DATA_DIR}/{iam-apiserver,iam-authz-server,iam-pump}
+  echo ${LINUX_PASSWORD} | sudo -S mkdir -p ${IAM_DATA_DIR}/{iam-apiserver,iam-authz-server,iam-pump,iam-watcher}
   iam::common::sudo "mkdir -p ${IAM_INSTALL_DIR}/bin"
   iam::common::sudo "mkdir -p ${IAM_CONFIG_DIR}/cert"
   iam::common::sudo "mkdir -p ${IAM_LOG_DIR}"
@@ -279,12 +295,12 @@ EOF
 function iam::install::install_cfssl()
 {
   mkdir -p $HOME/bin/
-  #wget https://github.com/cloudflare/cfssl/releases/download/v1.4.1/cfssl_1.4.1_linux_amd64 -O $HOME/bin/cfssl
-  #wget https://github.com/cloudflare/cfssl/releases/download/v1.4.1/cfssljson_1.4.1_linux_amd64 -O $HOME/bin/cfssljson
-  #wget https://github.com/cloudflare/cfssl/releases/download/v1.4.1/cfssl-certinfo_1.4.1_linux_amd64 -O $HOME/bin/cfssl-certinfo
-  wget https://pkg.cfssl.org/R1.2/cfssl_linux-amd64 -O $HOME/bin/cfssl
-  wget https://pkg.cfssl.org/R1.2/cfssljson_linux-amd64 -O $HOME/bin/cfssljson
-  wget https://pkg.cfssl.org/R1.2/cfssl-certinfo_linux-amd64 -O $HOME/bin/cfssl-certinfo
+  wget https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssl_1.6.1_linux_amd64 -O $HOME/bin/cfssl
+  wget https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssljson_1.6.1_linux_amd64 -O $HOME/bin/cfssljson
+  wget https://github.com/cloudflare/cfssl/releases/download/v1.6.1/cfssl-certinfo_1.6.1_linux_amd64 -O $HOME/bin/cfssl-certinfo
+  #wget https://pkg.cfssl.org/R1.2/cfssl_linux-amd64 -O $HOME/bin/cfssl
+  #wget https://pkg.cfssl.org/R1.2/cfssljson_linux-amd64 -O $HOME/bin/cfssljson
+  #wget https://pkg.cfssl.org/R1.2/cfssl-certinfo_linux-amd64 -O $HOME/bin/cfssl-certinfo
   chmod +x $HOME/bin/{cfssl,cfssljson,cfssl-certinfo}
   iam::log::info "install cfssl tools successfully"
 }
@@ -323,10 +339,13 @@ function iam::install::install_iam()
   # 5. 安装 iam-pump 服务
   iam::pump::install || return 1
 
-  # 6. 安装 iamctl 客户端工具
+  # 6. 安装 iam-watcher 服务
+  iam::watcher::install || return 1
+
+  # 7. 安装 iamctl 客户端工具
   iam::iamctl::install || return 1
 
-  # 7. 安装 man page
+  # 8. 安装 man page
   iam::man::install || return 1
 
   iam::log::info "install iam application successfully"
@@ -337,6 +356,7 @@ function iam::install::uninstall_iam()
   iam::man::uninstall || return 1
   iam::iamctl::uninstall || return 1
   iam::pump::uninstall || return 1
+  iam::watcher::uninstall || return 1
   iam::authzserver::uninstall || return 1
   iam::apiserver::uninstall || return 1
 
@@ -366,7 +386,7 @@ function iam::install::install()
   # 3. 测试安装后的 IAM 系统功能是否正常
   iam::test::test || return 1
 
-  iam::log::info "install iam application from fresh linux successfully"
+  iam::log::info "$(echo -e '\033[32mcongratulations, install iam application successfully!\033[0m')"
 }
 
 # 卸载。卸载只卸载服务，不卸载环境，不会卸载列表如下：

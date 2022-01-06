@@ -1,3 +1,4 @@
+#
 # Copyright 2020 Lingfei Kong <colin404@foxmail.com>. All rights reserved.
 # Use of this source code is governed by a MIT style
 # license that can be found in the LICENSE file.
@@ -18,7 +19,7 @@ redis:
   enable-cluster: false # 是否开启集群模式
   #addrs:
   #master-name: # redis 集群 master 名称
-  #username: # redis 登陆用户名
+  #username: # redis 登录用户名
   #timeout: # 连接 redis 时的超时时间
   #use-ssl: # 是否启用 TLS
   #ssl-insecure-skip-verify: # 当连接 redis 时允许使用自签名证书
@@ -34,7 +35,7 @@ pumps:
       collection_cap_enable: true
 
 log:
-    name: apiserver # Logger的名字
+    name: pump # Logger的名字
     development: true # 是否是开发模式。如果是开发模式，会对DPanicLevel进行堆栈跟踪。
     level: debug # 日志级别，优先级从低到高依次为：debug, info, warn, error, dpanic, panic, fatal。
     format: console # 支持的日志输出格式，目前支持console和json两种。console其实就是text格式。

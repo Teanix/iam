@@ -17,6 +17,7 @@
 readonly BUCKET="marmotedu-1254073058"
 readonly REGION="ap-beijing"
 readonly COS_RELEASE_DIR="iam-release"
+readonly COSTOOL="coscmd"
 
 # This is where the final release artifacts are created locally
 readonly RELEASE_STAGE="${LOCAL_OUTPUT_ROOT}/release-stage"
@@ -104,8 +105,13 @@ function iam::release::updload_tarballs() {
   iam::log::info "upload ${RELEASE_TARS}/* to cos bucket ${BUCKET}."
   for file in $(ls ${RELEASE_TARS}/*)
   do
-    coscmd upload  ""${file}"" "${COS_RELEASE_DIR}/${IAM_GIT_VERSION}/"
-    coscmd upload  ""${file}"" "${COS_RELEASE_DIR}/latest/"
+    if [ "${COSTOOL}" == "coscli" ];then
+      coscli cp "${file}" "cos://${BUCKET}/${COS_RELEASE_DIR}/${IAM_GIT_VERSION}/"
+      coscli cp "${file}" "cos://${BUCKET}/${COS_RELEASE_DIR}/latest/"
+    else
+      coscmd upload  "${file}" "${COS_RELEASE_DIR}/${IAM_GIT_VERSION}/"
+      coscmd upload  "${file}" "${COS_RELEASE_DIR}/latest/"
+    fi
   done
 }
 
@@ -378,10 +384,11 @@ function iam::release::package_iam_manifests_tarball() {
 
   local dst_dir="${release_stage}"
   mkdir -p "${dst_dir}"
-  cp ${src_dir}/* "${dst_dir}"
+  cp -r ${src_dir}/* "${dst_dir}"
   #cp "${src_dir}/iam-apiserver.yaml" "${dst_dir}"
   #cp "${src_dir}/iam-authz-server.yaml" "${dst_dir}"
   #cp "${src_dir}/iam-pump.yaml" "${dst_dir}"
+  #cp "${src_dir}/iam-watcher.yaml" "${dst_dir}"
   #cp "${IAM_ROOT}/cluster/gce/gci/health-monitor.sh" "${dst_dir}/health-monitor.sh"
 
   iam::release::clean_cruft
@@ -465,14 +472,14 @@ function iam::release::create_tarball() {
 }
 
 function iam::release::install_github_release(){
-  GO111MODULE=off go get -u github.com/github-release/github-release
+  GO111MODULE=on go install github.com/github-release/github-release@latest
 }
 
 # Require the following tools:
 # - github-release
 # - gsemver
 # - git-chglog
-# - coscmd
+# - coscmd or coscli
 function iam::release::verify_prereqs(){
   if [ -z "$(which github-release 2>/dev/null)" ]; then
     iam::log::info "'github-release' tool not installed, try to install it."
@@ -486,7 +493,7 @@ function iam::release::verify_prereqs(){
   if [ -z "$(which git-chglog 2>/dev/null)" ]; then
     iam::log::info "'git-chglog' tool not installed, try to install it."
 
-    if ! go get github.com/git-chglog/git-chglog/cmd/git-chglog &>/dev/null; then
+    if ! go install github.com/git-chglog/git-chglog/cmd/git-chglog@latest &>/dev/null; then
       iam::log::error "failed to install 'git-chglog'"
       return 1
     fi
@@ -495,18 +502,18 @@ function iam::release::verify_prereqs(){
   if [ -z "$(which gsemver 2>/dev/null)" ]; then
     iam::log::info "'gsemver' tool not installed, try to install it."
 
-    if ! go get github.com/arnaud-deprez/gsemver &>/dev/null; then
+    if ! go install github.com/arnaud-deprez/gsemver@latest &>/dev/null; then
       iam::log::error "failed to install 'gsemver'"
       return 1
     fi
   fi
 
 
-  if [ -z "$(which coscmd 2>/dev/null)" ]; then
-    iam::log::info "'coscmd' tool not installed, try to install it."
+  if [ -z "$(which ${COSTOOL} 2>/dev/null)" ]; then
+    iam::log::info "${COSTOOL} tool not installed, try to install it."
 
-    if ! pip install coscmd &>/dev/null; then
-      iam::log::error "failed to install 'coscmd'"
+    if ! make -C "${IAM_ROOT}" tools.install.${COSTOOL}; then
+      iam::log::error "failed to install ${COSTOOL}"
       return 1
     fi
   fi
@@ -516,8 +523,23 @@ function iam::release::verify_prereqs(){
       return 1
   fi
 
-  if [ ! -f "${HOME}/.cos.conf" ];then
-    cat << EOF > "${HOME}/.cos.conf"
+  if [ "${COSTOOL}" == "coscli" ];then
+    if [ ! -f "${HOME}/.cos.yaml" ];then
+      cat << EOF > "${HOME}/.cos.yaml"
+cos:
+  base:
+    secretid: ${TENCENT_SECRET_ID}
+    secretkey: ${TENCENT_SECRET_KEY}
+    sessiontoken: ""
+  buckets:
+  - name: ${BUCKET}
+    alias: ${BUCKET}
+    region: ${REGION}
+EOF
+    fi
+  else
+    if [ ! -f "${HOME}/.cos.conf" ];then
+      cat << EOF > "${HOME}/.cos.conf"
 [common]
 secret_id = ${TENCENT_SECRET_ID}
 secret_key = ${TENCENT_SECRET_KEY}
@@ -527,6 +549,7 @@ max_thread = 5
 part_size = 1
 schema = https
 EOF
+    fi
   fi
 }
 
@@ -566,7 +589,8 @@ function iam::release::generate_changelog() {
 
   git-chglog ${IAM_GIT_VERSION} > ${IAM_ROOT}/CHANGELOG/CHANGELOG-${IAM_GIT_VERSION#v}.md
 
-  (set +o errexit git add ${IAM_ROOT}/CHANGELOG/CHANGELOG-${IAM_GIT_VERSION#v}.md)
+  set +o errexit
+  git add ${IAM_ROOT}/CHANGELOG/CHANGELOG-${IAM_GIT_VERSION#v}.md
   git commit -a -m "docs(changelog): add CHANGELOG-${IAM_GIT_VERSION#v}.md"
   git push -f origin master # 最后将 CHANGELOG 也 push 上去
 }

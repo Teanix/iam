@@ -23,7 +23,7 @@ import (
 
 var (
 	progressMessage = color.GreenString("==>")
-	//nolint: deadcode,unused,varcheck
+
 	usageTemplate = fmt.Sprintf(`%s{{if .Runnable}}
   %s{{end}}{{if .HasAvailableSubCommands}}
   %s{{end}}{{if gt (len .Aliases) 0}}
@@ -189,7 +189,7 @@ func (a *App) buildCommand() {
 		for _, command := range a.commands {
 			cmd.AddCommand(command.cobraCommand())
 		}
-		cmd.SetHelpCommand(helpCommand(a.name))
+		cmd.SetHelpCommand(helpCommand(FormatBaseName(a.basename)))
 	}
 	if a.runFunc != nil {
 		cmd.RunE = a.runCommand
@@ -202,19 +202,6 @@ func (a *App) buildCommand() {
 		for _, f := range namedFlagSets.FlagSets {
 			fs.AddFlagSet(f)
 		}
-
-		usageFmt := "Usage:\n  %s\n"
-		cols, _, _ := term.TerminalSize(cmd.OutOrStdout())
-		cmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s\n\n"+usageFmt, cmd.Long, cmd.UseLine())
-			cliflag.PrintSections(cmd.OutOrStdout(), namedFlagSets, cols)
-		})
-		cmd.SetUsageFunc(func(cmd *cobra.Command) error {
-			fmt.Fprintf(cmd.OutOrStderr(), usageFmt, cmd.UseLine())
-			cliflag.PrintSections(cmd.OutOrStderr(), namedFlagSets, cols)
-
-			return nil
-		})
 	}
 
 	if !a.noVersion {
@@ -224,7 +211,10 @@ func (a *App) buildCommand() {
 		addConfigFlag(a.basename, namedFlagSets.FlagSet("global"))
 	}
 	globalflag.AddGlobalFlags(namedFlagSets.FlagSet("global"), cmd.Name())
+	// add new global flagset to cmd FlagSet
+	cmd.Flags().AddFlagSet(namedFlagSets.FlagSet("global"))
 
+	addCmdTemplate(&cmd, namedFlagSets)
 	a.cmd = &cmd
 }
 
@@ -302,4 +292,19 @@ func (a *App) applyOptionRules() error {
 func printWorkingDir() {
 	wd, _ := os.Getwd()
 	log.Infof("%v WorkingDir: %s", progressMessage, wd)
+}
+
+func addCmdTemplate(cmd *cobra.Command, namedFlagSets cliflag.NamedFlagSets) {
+	usageFmt := "Usage:\n  %s\n"
+	cols, _, _ := term.TerminalSize(cmd.OutOrStdout())
+	cmd.SetUsageFunc(func(cmd *cobra.Command) error {
+		fmt.Fprintf(cmd.OutOrStderr(), usageFmt, cmd.UseLine())
+		cliflag.PrintSections(cmd.OutOrStderr(), namedFlagSets, cols)
+
+		return nil
+	})
+	cmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s\n\n"+usageFmt, cmd.Long, cmd.UseLine())
+		cliflag.PrintSections(cmd.OutOrStdout(), namedFlagSets, cols)
+	})
 }

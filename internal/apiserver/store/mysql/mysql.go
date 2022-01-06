@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/marmotedu/iam/internal/apiserver/store"
+	"github.com/marmotedu/iam/internal/pkg/logger"
 	genericoptions "github.com/marmotedu/iam/internal/pkg/options"
 	"github.com/marmotedu/iam/pkg/db"
 )
@@ -35,6 +36,10 @@ func (ds *datastore) Secrets() store.SecretStore {
 
 func (ds *datastore) Policies() store.PolicyStore {
 	return newPolicies(ds)
+}
+
+func (ds *datastore) PolicyAudits() store.PolicyAuditStore {
+	return newPolicyAudits(ds)
 }
 
 func (ds *datastore) Close() error {
@@ -69,6 +74,7 @@ func GetMySQLFactoryOr(opts *genericoptions.MySQLOptions) (store.Factory, error)
 			MaxOpenConnections:    opts.MaxOpenConnections,
 			MaxConnectionLifeTime: opts.MaxConnectionLifeTime,
 			LogLevel:              opts.LogLevel,
+			Logger:                logger.New(opts.LogLevel),
 		}
 		dbIns, err = db.New(options)
 

@@ -55,23 +55,18 @@ type Logger interface {
 	// a Logger value is equivalent to calling them on a V(0) InfoLogger.  For
 	// example, logger.Info() produces the same result as logger.V(0).Info.
 	InfoLogger
-
 	Debug(msg string, fields ...Field)
 	Debugf(format string, v ...interface{})
 	Debugw(msg string, keysAndValues ...interface{})
-
 	Warn(msg string, fields ...Field)
 	Warnf(format string, v ...interface{})
 	Warnw(msg string, keysAndValues ...interface{})
-
 	Error(msg string, fields ...Field)
 	Errorf(format string, v ...interface{})
 	Errorw(msg string, keysAndValues ...interface{})
-
 	Panic(msg string, fields ...Field)
 	Panicf(format string, v ...interface{})
 	Panicw(msg string, keysAndValues ...interface{})
-
 	Fatal(msg string, fields ...Field)
 	Fatalf(format string, v ...interface{})
 	Fatalw(msg string, keysAndValues ...interface{})
@@ -80,7 +75,6 @@ type Logger interface {
 	// verbosity level means a log message is less important.  It's illegal to
 	// pass a log level less than zero.
 	V(level int) InfoLogger
-
 	Write(p []byte) (n int, err error)
 
 	// WithValues adds some key-value pairs of context to a logger.
@@ -280,9 +274,9 @@ func New(opts *Options) *zapLogger {
 	return logger
 }
 
-// StdLogger returns global std logger.
-func StdLogger() *zapLogger {
-	return std
+// SugaredLogger returns global sugared logger.
+func SugaredLogger() *zap.SugaredLogger {
+	return std.zapLogger.Sugar()
 }
 
 // StdErrLogger returns logger of standard library which writes to supplied zap
@@ -315,7 +309,7 @@ func StdInfoLogger() *log.Logger {
 func V(level int) InfoLogger { return std.V(level) }
 
 func (l *zapLogger) V(level int) InfoLogger {
-	lvl := zapcore.Level(-1 * level)
+	lvl := zapcore.Level(5 - 1*level)
 	if l.zapLogger.Core().Enabled(lvl) {
 		return &infoLogger{
 			level: lvl,
@@ -559,9 +553,15 @@ func L(ctx context.Context) *zapLogger {
 func (l *zapLogger) L(ctx context.Context) *zapLogger {
 	lg := l.clone()
 
-	requestID, _ := ctx.Value(KeyRequestID).(string)
-	username, _ := ctx.Value(KeyUsername).(string)
-	lg.zapLogger = lg.zapLogger.With(zap.String(KeyRequestID, requestID), zap.String(KeyUsername, username))
+	if requestID := ctx.Value(KeyRequestID); requestID != nil {
+		lg.zapLogger = lg.zapLogger.With(zap.Any(KeyRequestID, requestID))
+	}
+	if username := ctx.Value(KeyUsername); username != nil {
+		lg.zapLogger = lg.zapLogger.With(zap.Any(KeyUsername, username))
+	}
+	if watcherName := ctx.Value(KeyWatcherName); watcherName != nil {
+		lg.zapLogger = lg.zapLogger.With(zap.Any(KeyWatcherName, watcherName))
+	}
 
 	return lg
 }

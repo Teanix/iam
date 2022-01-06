@@ -94,7 +94,6 @@ func (s *GenericAPIServer) InstallMiddlewares() {
 	// necessary middlewares
 	s.Use(middleware.RequestID())
 	s.Use(middleware.Context())
-	// s.Use(limits.RequestSizeLimiter(10))
 
 	// install custom middlewares
 	for _, m := range s.middlewares {
@@ -225,7 +224,7 @@ func (s *GenericAPIServer) ping(ctx context.Context) error {
 			return err
 		}
 		// Ping the server by sending a GET request to `/healthz`.
-		// nolint: gosec
+
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			log.Info("The router has been deployed successfully.")
@@ -237,7 +236,7 @@ func (s *GenericAPIServer) ping(ctx context.Context) error {
 
 		// Sleep for a second to continue the next ping.
 		log.Info("Waiting for the router, retry in 1 second.")
-		time.Sleep(time.Second)
+		time.Sleep(1 * time.Second)
 
 		select {
 		case <-ctx.Done():
